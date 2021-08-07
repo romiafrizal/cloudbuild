@@ -1,0 +1,32 @@
+#Docker Compose Lavaral Unit Test
+version: '3.7'
+
+services:
+  laravel-be:
+    build:
+      context: .
+      dockerfile: Dockerfile-test.dockerfile
+    restart: "no"
+    links:
+      - database
+    tty: true
+    stdin_open: true
+    volumes:
+      - laravel-be:/var/www/html
+    depends_on:
+      - database
+
+  database:
+    image: mysql:8.0
+    restart: on-failure
+    environment:
+      MYSQL_DATABASE: "laravel_test"
+      MYSQL_ROOT_PASSWORD: $_COMPOSE_DB_ROOT_PASSWORD
+
+    volumes:
+      - database:/var/lib/mysql
+      - ./srvr/initsql:/docker-entrypoint-initdb.d
+
+volumes:
+  laravel-be:
+  database:

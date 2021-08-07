@@ -1,2 +1,2 @@
 # cloudbuild
-CI/CD cloud build template
+CI/CD cloud build Stockbit test

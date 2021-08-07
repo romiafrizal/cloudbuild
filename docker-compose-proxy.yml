@@ -1,0 +1,33 @@
+# Docker compose untuk koneksi ke CloudSQL / RDS 
+version: '3.7'
+
+services: 
+  laravel-be:
+    build:
+      context: .
+      dockerfile: $_DOCKERFILE
+      target: $_ENVIRONMENT
+    restart: "no"
+    links:
+      - database
+    tty: true
+    volumes: 
+      - laravel-be:/var/www/html
+    env_file: 
+      - ./.env
+    depends_on: 
+      - database
+      
+
+  database:
+    image: gcr.io/cloudsql-docker/gce-proxy
+    restart: on-failure
+    command: 
+      - "/cloud_sql_proxy" 
+      - "-instances=$_SQL_CONNECTION_NAME=tcp:0.0.0.0:3306" 
+      - "-credential_file=/config/sql_proxy.json"
+    volumes: 
+      - ./sql_proxy.json:/config/sql_proxy.json:ro
+
+volumes: 
+  laravel-be:

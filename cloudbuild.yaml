@@ -1,0 +1,198 @@
+steps:
+- name: 'gcr.io/$PROJECT_ID/slackbot'
+  id: Slack-notif-handler
+  args: [ '--build', '$BUILD_ID',
+          '--webhook', '$_SLACK_WEBHOOK', '--copy-timeout' ]
+  timeout: 3600s
+
+# Pre-Flight
+- name: 'gcr.io/cloud-builders/gsutil'
+  id: Env-for-unittest-handler
+  args: ['cp', 'gs://$_BUCKET_CONFIG_NAME/laravel-be/env/testing/.env.testing', '.env']
+  timeout: 300s
+
+- name: 'gcr.io/cloud-builders/gsutil'
+  id: Env-for-unittest
+  args: ['cp', 'gs://$_BUCKET_CONFIG_NAME/laravel-be/env/testing/.env.testing', '.']
+  timeout: 300s
+
+- name: 'gcr.io/cloud-builders/gsutil'
+  id: Credential-handler
+  args: ['cp', 'gs://$_BUCKET_CONFIG_NAME/laravel-be/creds/*', '.']
+  timeout: 300s
+
+- name: 'raudhahdev/php74-fpm'
+  id: Composer-Install
+  args:
+    - '/bin/bash'
+    - '-c'
+    - 'composer install'
+  timeout: 1800s
+
+# Subtitution for docker-compose
+- name: 'gcr.io/$PROJECT_ID/envsubst'
+  id: envSubst-for-unittest
+  env:
+    - '_COMPOSE_DB_ROOT_PASSWORD=$_COMPOSE_DB_ROOT_PASSWORD'
+    - '_DOCKERFILE=$_DOCKERFILE'
+    - '_SQL_CONNECTION_NAME=$_SQL_CONNECTION_NAME'
+    - '_ENVIRONMENT=$_ENVIRONMENT'
+  args: ['docker-compose-test.yml', 'docker-compose-proxy.yml']
+  timeout: 300s
+
+# Unit Test
+- name: 'gcr.io/$PROJECT_ID/docker-compose'
+  id: Docker-compose-build
+  args: ['-f', 'docker-compose-test.yml', 'build']
+  timeout: 3600s
+
+- name: 'gcr.io/$PROJECT_ID/docker-compose'
+  id: Docker-compose-up
+  args: ['-f','docker-compose-test.yml', 'up', '--timeout', '1','--no-build', '-d']
+  timeout: 1800s
+
+- name: 'bash'
+  id: Warm-up-docker-compose-unittest
+  args: ['sleep', '20s']
+  timeout: 60s
+
+- name: 'gcr.io/cloud-builders/docker'
+  id: Migrate-db-unittest
+  args:
+    - 'exec'
+    - '-i'
+    - 'workspace_laravel-be_1'
+    - '/bin/sh'
+    - '-c'
+    - 'DB_DATABASE=laravel_test php artisan migrate'
+  timeout: 1800s
+
+- name: 'gcr.io/cloud-builders/docker'
+  id: Migrate-db1-unittest
+  args:
+    - 'exec'
+    - '-i'
+    - 'workspace_laravel-be_1'
+    - '/bin/sh'
+    - '-c'
+    - 'DB_DATABASE=laravel_test1 php artisan migrate'
+  timeout: 1800s
+
+- name: 'gcr.io/cloud-builders/docker'
+  id: Migrate-db2-unittest
+  args:
+    - 'exec'
+    - '-i'
+    - 'workspace_laravel-be_1'
+    - '/bin/sh'
+    - '-c'
+    - 'DB_DATABASE=laravel_test2 php artisan migrate'
+  timeout: 1800s
+
+- name: 'gcr.io/cloud-builders/docker'
+  id: PHP-unittest
+  args:
+    - 'exec'
+    - '-i'
+    - 'workspace_laravel-be_1'
+    - '/bin/sh'
+    - '-c'
+    - 'composer paratest -- -p2'
+  timeout: 3600s
+
+- name: 'gcr.io/$PROJECT_ID/docker-compose'
+  id: Dokcker-compose-down-unittes
+  args: ['-f', 'docker-compose-test.yml', 'down', '-v']
+  timeout: 600s
+
+# #========== SQL-PROXY-SETUP ===========#
+- name: 'gcr.io/cloud-builders/gsutil'
+  id: Env-for-sqlProxy-handler
+  args: ['cp', 'gs://$_BUCKET_CONFIG_NAME/laravel-be/env/$_ENVIRONMENT/.env.proxy', './.env']
+  timeout: 300s
+
+- name: 'gcr.io/$PROJECT_ID/docker-compose'
+  id: Docker-compose-build-cloudProxy
+  args: ['-f','docker-compose-proxy.yml', 'build']
+  timeout: 3600s
+
+- name: 'gcr.io/$PROJECT_ID/docker-compose'
+  id: Docker-compose-up-cloudProxy
+  args: ['-f','docker-compose-proxy.yml', 'up', '--timeout', '1', '--no-build', '-d']
+  timeout: 1800s
+
+- name: 'bash'
+  id: Warm-up-docker-compose-cloudProxy
+  args: ['sleep', '10s']
+  timeout: 60s
+
+- name: 'gcr.io/cloud-builders/docker'
+  id: Migrate-DB
+  args: ['exec', '-i', 'workspace_laravel-be_1', 'php', 'artisan', 'migrate', '--force']
+  timeout: 1800s
+
+- name: 'gcr.io/cloud-builders/docker'
+  id: Custom-Script-Deploy
+  args:
+    - 'exec'
+    - '-i'
+    - 'workspace_laravel-be_1'
+    - '/bin/sh'
+    - '-c'
+    - '$_PHP_CUSTOM_SCRIPT_DEPLOYMENT'
+  timeout: 3600s
+
+- name: 'gcr.io/$PROJECT_ID/docker-compose'
+  id: Docker-compose-down-cloudProxy
+  args: ['-f','docker-compose-proxy.yml', 'down', '-v']
+  timeout: 600s
+
+#======== [END] SQL-PROXY-SETUP =========#
+
+- name: 'gcr.io/cloud-builders/gsutil'
+  id: Env-Handler
+  args: ['cp', 'gs://$_BUCKET_CONFIG_NAME/laravel-be/env/$_ENVIRONMENT/.env', './.env']
+
+# Build Image
+- name: 'gcr.io/cloud-builders/docker'
+  id: Build-docker-image
+  args: ['build', '--target', '$_ENVIRONMENT', '-t', 'asia.gcr.io/$PROJECT_ID/$_ENVIRONMENT/laravel-be:$SHORT_SHA', '-f', '$_DOCKERFILE', '.']
+  timeout: 3600s
+
+# Push Image
+- name: 'gcr.io/cloud-builders/docker'
+  id: Push-docker-image-to-gcr
+  args: ['push', 'asia.gcr.io/$PROJECT_ID/$_ENVIRONMENT/laravel-be:$SHORT_SHA']
+  timeout: 1800s
+
+# Subtitution for deployment
+- name: 'gcr.io/$PROJECT_ID/envsubst'
+  id: Envsubst-for-deployment
+  env:
+    - '_ENVIRONMENT=$_ENVIRONMENT'
+    - 'SHORT_SHA=$SHORT_SHA'
+    - 'PROJECT_ID=$PROJECT_ID'
+    - '_K8_INGRESS_NAME=$_K8_INGRESS_NAME'
+    - '_K8_STATIC_INGRESS_ADDR=$_K8_STATIC_INGRESS_ADDR'
+    - '_K8_CERT_NAME=$_K8_CERT_NAME'
+    - '_K8_DOMAIN_BE=$_K8_DOMAIN_BE'
+    - '_K8_BACKEND_CONF_NAME=$_K8_BACKEND_CONF_NAME'
+    - '_K8_ARMOR_POLICY_NAME=$_K8_ARMOR_POLICY_NAME'
+    - '_K8_MAX_POD_REPLICA=$_K8_MAX_POD_REPLICA'
+    - '_K8_MIN_POD_REPLICA=$_K8_MIN_POD_REPLICA'
+    - '_K8_CPU_AUTOSCALE_PERCENTAGE=$_K8_CPU_AUTOSCALE_PERCENTAGE'
+  args: ['$_DEPLOYMENT_FILE']
+  timeout: 600s
+
+# Deployment
+- name: "gcr.io/cloud-builders/gke-deploy"
+  id: Deploy-to-Kubernetes-Cluster
+  args:
+  - run
+  - --filename=$_DEPLOYMENT_FILE
+  - --cluster=$_CLUSTER_NAME
+  - --location=$_GCP_ZONE
+  timeout: 1800s
+
+#Global timeout
+timeout: '3600s'
