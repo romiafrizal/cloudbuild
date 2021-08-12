@@ -1,2 +1,2 @@
 # cloudbuild
-CI/CD cloud build Stockbit test
+CI/CD cloubuild laravel template
